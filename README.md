@@ -17,3 +17,4 @@ The goal is to classify market states such as:
 - Inflation
 
 This project is part of the Imperial College AI & Machine Learning Certificate capstone work.
+Open in Colab
