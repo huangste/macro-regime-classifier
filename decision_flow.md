@@ -23,7 +23,7 @@ Instead, I would use a time-based cross-validation approach, such as rolling or 
 In practice, this could be implemented using TimeSeriesSplit in scikit-learn, which preserves the chronological order of the data and 
 allows the model to be evaluated on future periods only. 
 
-examples: 
+example code:
 tscv = TimeSeriesSplit(n_splits=5)
 for train_index, val_index in tscv.split(X):
     X_train, X_val = X[train_index], X[val_index]
@@ -36,7 +36,7 @@ This provides a more reliable assessment of model stability.
 While in supervised learning I can use cross validation score, for unsupervised learning, the validation become: experienced learned from past still make sense in the future? we can use a mix of silhouette, persistence, explained variance, and stability, plus economic interpretation. 
 so the work flow becomes like:
 
-examples：
+example code:
 for train_idx, val_idx in tscv.split(X):
 
     # Step 1: fit PCA + GMM on TRAIN
@@ -51,7 +51,6 @@ for train_idx, val_idx in tscv.split(X):
     # (stability, interpretation, persistence)
 
 
-
 #Multinomial logistic regression
 For the transition probability model, cross-validation also plays an important role in evaluating predictive performance. 
 Rather than focusing on simple classification accuracy, I would assess the quality of predicted probabilities using metrics such as log loss, and compare them with empirical transition frequencies. 
@@ -61,7 +60,7 @@ The primary candidate is a multinomial logistic regression and benchmark is 1) r
 and when we run scores, it is not correct vs incorrect, it is rather on transition probability, so log loss is better. 
 This is why in the following code we add ( scoring='neg_log_loss') for cross validation, as log loss lower is better so we need to change to negative log loss
 
-example
+example code:
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.linear_model import LogisticRegression
 
