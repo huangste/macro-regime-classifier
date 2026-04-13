@@ -58,7 +58,28 @@ Rather than focusing on simple classification accuracy, I would assess the quali
 I would also examine whether elevated predicted probabilities of adverse regimes correspond to realised stress periods, 
 which is more relevant for practical decision-making.
 The primary candidate is a multinomial logistic regression and benchmark is 1) random forest  2) Gradient Boosting / XGBoost-style model 3) Kernel ridge regression
+and when we run scores, it is not correct vs incorrect, it is rather on transition probability, so log loss is better. 
+This is why in the following code we add ( scoring='neg_log_loss') for cross validation, as log loss lower is better so we need to change to negative log loss
 
+example
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.linear_model import LogisticRegression
 
+ts = TimeSeriesSplit(n_splits=5)
+
+model = LogisticRegression(
+    multi_class='multinomial',
+    max_iter=1000
+)
+
+scores = cross_val_score(
+    model,
+    X,
+    y,
+    cv=ts,
+    scoring='neg_log_loss'
+)
+
+# summary
 Overall, while oversampling can theoretically address class imbalance, its application in financial regime modelling is limited by the economic cost of false positives. 
 In contrast, class weighting, threshold adjustment and time-based cross-validation provide a more robust and realistic framework for evaluating both regime classification and transition probabilities in a non-stationary financial setting.
