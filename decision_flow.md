@@ -79,6 +79,25 @@ scores = cross_val_score(
     scoring='neg_log_loss'
 )
 
+# Calculate transition probability
+so the final output we are interested in is (P(y_{t+1}=crisis/x_t= WOI)， this sounds the need of Bayesian style forumula, but the supervised multinominal logistic regression already did that X_t → predict y_{t+1}. I can simpy use model.predict_proba(X_t) from multinominal logistic regression. 
+Output will be [P(Risk-on), P(WOI), P(Crisis), P(Inflation)] the label of y will be coming from unsupervised learning. This can be compare against empirical tranisition matrix P(next regime | current regime):
+
+Example code:
+
+from collections import Counter
+counts = Counter(zip(y_t, y_t1))
+
 # summary
+Key work flow:
+1, Feature construction: Build cross-asset features (returns, spreads, volatility)
+2, PCA - reduce dimension find k states
+3, GMM - label GMM(n_components=k) and find labels output: y_t = regime label at time t
+4,multinominal logistic regression find k transition probabilities output: P(Risk-on), P(WOI), P(Crisis), P(Inflation)
+5, validation and hyperparameters tuning- PCA: explained variance, stability- GMM: cluster persistence, separation, economic meaning; - TimeSeriesSplit
+- Log loss (main metric)- Confusion matrix (secondary)- Crisis detection quality
+
+The 4th step can try a different models as listed in prevous paragraph
+
 Overall, while oversampling can theoretically address class imbalance, its application in financial regime modelling is limited by the economic cost of false positives. 
 In contrast, class weighting, threshold adjustment and time-based cross-validation provide a more robust and realistic framework for evaluating both regime classification and transition probabilities in a non-stationary financial setting.
