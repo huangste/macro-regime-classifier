@@ -23,7 +23,8 @@ Instead, I would use a time-based cross-validation approach, such as rolling or 
 In practice, this could be implemented using TimeSeriesSplit in scikit-learn, which preserves the chronological order of the data and 
 allows the model to be evaluated on future periods only. 
 
-examples: tscv = TimeSeriesSplit(n_splits=5)
+examples: 
+tscv = TimeSeriesSplit(n_splits=5)
 for train_index, val_index in tscv.split(X):
     X_train, X_val = X[train_index], X[val_index]
 
@@ -32,9 +33,11 @@ By evaluating the model across multiple historical windows, I can test whether t
 and transition probabilities are robust across different market environments, rather than relying on a single validation period. 
 This provides a more reliable assessment of model stability.
 
-While in supervised learning I can use cross validation score, for unsupervised learning, the validation become: experienced learned from past still make sense in the future?
+While in supervised learning I can use cross validation score, for unsupervised learning, the validation become: experienced learned from past still make sense in the future? we can use a mix of silhouette, persistence, explained variance, and stability, plus economic interpretation. 
 so the work flow becomes like:
-examples：for train_idx, val_idx in tscv.split(X):
+
+examples：
+for train_idx, val_idx in tscv.split(X):
 
     # Step 1: fit PCA + GMM on TRAIN
     pca.fit(X_train)
@@ -48,11 +51,14 @@ examples：for train_idx, val_idx in tscv.split(X):
     # (stability, interpretation, persistence)
 
 
-#multi modal logistical regression
+
+#Multinomial logistic regression
 For the transition probability model, cross-validation also plays an important role in evaluating predictive performance. 
 Rather than focusing on simple classification accuracy, I would assess the quality of predicted probabilities using metrics such as log loss, and compare them with empirical transition frequencies. 
 I would also examine whether elevated predicted probabilities of adverse regimes correspond to realised stress periods, 
 which is more relevant for practical decision-making.
+The primary candidate is a multinomial logistic regression and benchmark is 1) random forest  2) Gradient Boosting / XGBoost-style model 3) Kernel ridge regression
+
 
 Overall, while oversampling can theoretically address class imbalance, its application in financial regime modelling is limited by the economic cost of false positives. 
 In contrast, class weighting, threshold adjustment and time-based cross-validation provide a more robust and realistic framework for evaluating both regime classification and transition probabilities in a non-stationary financial setting.
