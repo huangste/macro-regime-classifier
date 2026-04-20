@@ -1,0 +1,92 @@
+## Objective
+Identify market regimes and estimate transition probabilities using cross-asset data.
+
+## Data
+SPX, QQQ, KWEB, VIX, DXY, AUDJPY, rates slope, HYG, gold, oil
+
+## Methodology
+
+### 1. Feature Engineering
+- returns, spreads, volatility
+- ensure consistent frequency and alignment across assets
+
+### 2. Dimensionality Reduction
+- PCA (tune `n_components` via explained variance, typically targeting 85–95%)
+- objective: retain core market structure while reducing noise and multicollinearity
+- avoid too many components, which may destabilise clustering
+
+### 3. Regime Identification
+- GMM used to identify latent market regimes
+
+Key hyperparameters:
+- `n_components`:
+  - defines number of regimes (e.g. 3–5)
+  - critical structural choice affecting entire model
+- `covariance_type`:
+  - 'diag' preferred for stability (assumes independent features within regime)
+  - 'full' allows correlations but may overfit in limited data
+- `reg_covar`:
+  - small regularisation term to stabilise covariance estimation
+  - prevents numerical instability and degenerate clusters
+- `n_init`:
+  - multiple initialisations to avoid poor local optima
+
+Objective:
+- identify regimes that are persistent, interpretable, and economically meaningful
+- not purely optimise statistical fit
+
+### 4. Transition Modelling
+- Multinomial Logistic Regression
+- Predict \( y_{t+1} \) (next-period regime)
+
+Key hyperparameters:
+- `C` (regularisation strength):
+  - controls model complexity
+  - smaller C → stronger regularisation → more stable model
+- `class_weight`:
+  - used to address imbalance (e.g. rare crisis regimes)
+  - increases sensitivity to economically important states
+- `max_iter`:
+  - ensures convergence (not a primary tuning parameter)
+
+Objective:
+- estimate well-calibrated transition probabilities between regimes
+- prioritise stability and interpretability over complexity
+
+### 5. Validation
+- TimeSeriesSplit (no random shuffling to avoid look-ahead bias)
+- rolling / expanding window validation
+
+Metrics:
+- Log loss (primary):
+  - evaluates quality of predicted probabilities
+- Confusion matrix (secondary):
+  - assess regime classification, especially crisis detection
+
+### 6. Handling Imbalance
+- Use class weighting rather than oversampling
+- Oversampling avoided as it distorts true data distribution
+- Threshold adjustment may be applied for decision-making
+
+## Model Choice
+
+Primary:
+- Multinomial Logistic Regression
+  - direct probabilistic output
+  - interpretable and robust under limited data
+  - aligned with transition probability objective
+
+Benchmark:
+- Random Forest / Gradient Boosting
+  - capture nonlinearities
+  - used for comparison, not primary model
+
+## Baseline
+- Empirical transition matrix:
+  - \( P(R_{t+1} | R_t) \)
+  - serves as reference without feature information
+
+## Goal
+- Not maximise classification accuracy
+- Produce stable, interpretable transition probabilities
+- Provide economically meaningful regime classification and forward-looking risk assessment
