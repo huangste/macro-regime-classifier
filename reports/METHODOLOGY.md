@@ -40,6 +40,14 @@ The original also downloaded HYG and then never put it in the panel, so the
 model had no credit variable at all. Moody's Baa spread is used instead
 because it is daily from 1986 rather than 2007.
 
+**Known gap, April–July 2020.** WTI crude settled at −$37.63 on 20 April
+2020. Oil features are built from log prices, so that single print makes them
+undefined; the missing value then propagates through every 63-day window, and
+the feature step drops 64 sessions (20 April – 20 July 2020) from the *whole*
+sample — including the regime classification, which does not use oil at all.
+It shows as a straight line through mid-2020 in the risk-appetite chart. This
+is a defect, not a modelling choice, and has not yet been fixed.
+
 ---
 
 ## Features
@@ -109,6 +117,122 @@ separate realised risk-adjusted returns while leaving enough days in each to
 estimate transitions. BIC is not used: it falls monotonically in K on data
 this autocorrelated, because extra components absorb serial dependence the
 model does not otherwise represent.
+
+---
+
+## Risk-appetite index
+
+The index is built in this project from the market data above; it is not an
+imported or published series. It exists to give the regimes an economic
+order, and is also shown as a readable one-number summary of conditions.
+
+### Construction
+
+Eleven daily features in four blocks, each with a sign fixed in advance
+(+ means a higher value is more risk-seeking):
+
+| block | feature | sign | definition |
+|---|---|---|---|
+| Equity | `SPX_rmom21`, `SPX_rmom63` | + | S&P log return over 21 / 63 days, divided by 21-day realised vol × √h |
+| | `SPX_dd252` | + | log(S&P ÷ its 252-day high); zero at a new high |
+| | `RUT_rel_SPX_63` | + | 63-day change in log(Russell 2000 ÷ S&P): small caps leading |
+| | `Nikkei_rmom63` | + | Nikkei 63-day volatility-adjusted return |
+| Volatility | `SPX_logvol21` | − | log of annualised 21-day realised volatility |
+| | `SPX_volratio` | − | log(21-day ÷ 63-day realised vol): volatility accelerating |
+| | `VIX_log` | − | log VIX |
+| Credit | `Baa_log` | − | log of Moody's Baa-minus-10y-Treasury spread |
+| | `Baa_chg63` | − | 63-day change in that spread |
+| Carry | `USDJPY_rmom63` | + | USD/JPY 63-day volatility-adjusted return: yen weakening, carry on |
+
+1. Standardise each feature with the mean and standard deviation of the
+   sample the model is fitted on.
+2. Multiply by its sign and average within the block.
+3. Average the four blocks with equal weight:
+
+$$\text{RAI}_t = \tfrac14\left(\bar z^{\,\text{equity}}_t + \bar z^{\,\text{volatility}}_t + \bar z^{\,\text{credit}}_t + \bar z^{\,\text{carry}}_t\right)$$
+
+Weighting by block rather than by feature stops equity dominating merely
+because it contributes five columns. Zero means average conditions over the
+estimation sample — an average that includes 1998, 2008 and 2020, so zero is
+not a neutral-looking market but a mildly benign one.
+
+The curve slope, the change in the 10-year yield and the stock/bond
+correlation are deliberately **left out**: whether they signal risk appetite
+depends on the macro backdrop (a steep curve can mean early expansion or
+post-crisis easing), so they describe regimes but do not score them.
+
+The signs and weights are a judgement, not an estimate. That is deliberate —
+an index fitted to the data could be tuned to produce whatever regime ordering
+looked best — but it means a different reasonable weighting would give a
+somewhat different line. The index has not been validated against an
+external measure such as the Chicago Fed NFCI or the St. Louis Fed Financial
+Stress Index.
+
+### What it is used for
+
+- **Ordering the regimes.** Each state's average index value fixes its
+  canonical position: 0 is the most risk-averse, K−1 the most risk-seeking.
+- **Seeding the HMM.** Estimation starts from quantile buckets of the index
+  rather than a random draw, which is what makes the labels seed-invariant.
+- **Display.** On the header and the Characteristics tab. The historical line
+  there is scaled with the full sample and so is descriptive; today's value
+  uses only data up to today. The Characteristics chart is a 5-day average;
+  the header shows the latest day.
+
+### Why the index can be low while the regime is risk-on
+
+This is expected, and it happens often. Over the full sample, the index was
+below zero on roughly a quarter of the days the real-time regime was risk-on,
+and above zero on roughly one risk-off day in eight. The panel below computes
+these figures for whichever model is selected in the sidebar. There are five
+reasons, and they usually act together.
+
+**1. The two answer different questions.** The index is a fixed linear
+summary designed to *order* states. The regime is chosen by the HMM's
+likelihood over all fourteen labelling features with their full covariance,
+and is designed to *classify* days. Nothing forces a day's index value to sit
+nearest the average index value of the state it is assigned to; historically
+the two agree on the exact state only about half the time, and on
+risk-on versus risk-off about five times in six.
+
+**2. They weight the same features very differently.** The index weights by
+economic block, so the single carry feature, USD/JPY momentum, gets a quarter
+of the index on its own. The HMM effectively weights each feature by how well
+it separates the regimes relative to its noise within a regime. Drawdown,
+credit spreads, VIX and realised volatility separate regimes strongly;
+small-cap relative strength, the volatility ratio and yen carry barely do.
+When those weakly separating features move sharply, the index moves and the
+regime does not.
+
+**3. The HMM sees features the index ignores.** The curve, the yield change
+and the stock/bond correlation enter the likelihood but not the index.
+
+**4. The regime has memory; the index does not.** The real-time regime
+probability combines today's data with yesterday's regime and a daily
+probability of staying put of roughly 99%. One soft reading cannot flip it;
+it takes sustained evidence. The index is recomputed from scratch each day.
+
+**5. Regimes are ranges, not thresholds.** Each regime covers a spread of
+index values and the spreads overlap. The lower quarter of the Risk-on
+expansion regime reaches down to around +0.2 and its tail goes below zero.
+In the four-state model, near-average conditions typically fall in *Recovery
+/ mixed*, which is itself on the risk-on side of the split — so an index near
+zero is fully consistent with a risk-on verdict.
+
+### How to read a divergence
+
+A falling index inside a risk-on regime usually means the market is
+**narrowing**: the variables that best identify regimes (volatility, credit,
+drawdown) still look benign, while secondary ones (breadth, carry, foreign
+equities) have turned. It is a reason to watch, not a regime change.
+
+Whether such a divergence predicts a turn has **not** been tested as a signal
+in its own right. The forecasting models already see every one of these
+features, so any information in the divergence is already reflected in their
+out-of-sample record, and that record shows turns are hard to time from
+market data alone.
+
+<!-- LIVE_RAI_PANEL -->
 
 ---
 
