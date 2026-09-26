@@ -201,6 +201,101 @@ def skill_chart(bench: pd.DataFrame, target: str) -> go.Figure:
     return fig
 
 
+def _signed_z_style(v: float, lim: float = 2.0) -> str:
+    """Diverging cell colour; empty for features that are not in the index."""
+    if not np.isfinite(v):
+        return ""
+    import matplotlib
+
+    r, g, b, _ = matplotlib.colormaps["RdBu"]((float(np.clip(v, -lim, lim)) + lim) / (2 * lim))
+    text = "#ffffff" if abs(v) > 0.6 * lim else "#111111"
+    return (f"background-color: rgb({int(r * 255)},{int(g * 255)},{int(b * 255)}); "
+            f"color: {text}")
+
+
+def render_rai_decomposition(state, key: str) -> dict:
+    """Today's risk-appetite index split into blocks and features.
+
+    Shared by the Characteristics and Method tabs; ``key`` keeps Streamlit's
+    element IDs distinct when the same content is drawn twice.
+    """
+    from regimelab.labeling import RISK_BLOCKS
+
+    lab = state.labeler
+    L = state.features[lab.columns_]
+    Z = pd.DataFrame(lab.scaler_.transform(L.values), index=L.index, columns=L.columns)
+    rs = state.risk_score
+    hf = state.proba_filtered.values.argmax(axis=1)
+    short = [n.split(" (")[0] for n in state.regime_names]
+    now, rai = int(hf[-1]), float(rs.iloc[-1])
+
+    in_state = rs.values[hf == now]
+    q25, q75 = np.quantile(in_state, [0.25, 0.75])
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Risk-appetite index", f"{rai:+.2f}")
+    c2.metric(f"Typical range in {short[now]}", f"{q25:+.2f} to {q75:+.2f}",
+              help="Interquartile range of the index on days the real-time "
+                   "regime was this one.")
+    c3.metric(f"Percentile within {short[now]}", f"{np.mean(in_state <= rai):.0%}")
+
+    # Separation: how far apart the regimes sit on a feature, relative to the
+    # spread within a regime.  A rough proxy for the weight the HMM gives it.
+    sep = Z.groupby(hf).mean().std() / Z.groupby(hf).std().mean()
+
+    blocks = {b: [c for c in spec if c in Z.columns] for b, spec in RISK_BLOCKS.items()}
+    blocks = {b: cols for b, cols in blocks.items() if cols}
+    n_blocks = len(blocks)
+    rows = []
+    for b, cols in blocks.items():
+        for c in cols:
+            w = 1.0 / n_blocks / len(cols)
+            sz = RISK_BLOCKS[b][c] * float(Z[c].iloc[-1])
+            rows.append(dict(block=b, feature=c, weight=w, signed_z=sz,
+                             contribution=w * sz, separation=float(sep[c])))
+    for c in lab.columns_:
+        if not any(c in cols for cols in blocks.values()):
+            rows.append(dict(block="not in index", feature=c, weight=0.0,
+                             signed_z=np.nan, contribution=0.0,
+                             separation=float(sep[c])))
+    tab = pd.DataFrame(rows)
+    in_idx = tab[tab["block"] != "not in index"]
+
+    st.markdown("**Where today's index value comes from**")
+    contrib = in_idx.groupby("block", sort=False)["contribution"].sum()
+    fig = go.Figure(go.Bar(
+        x=contrib.values, y=contrib.index, orientation="h",
+        marker_color=[ON_COLOR if v >= 0 else OFF_COLOR for v in contrib.values],
+        text=[f"{v:+.2f}" for v in contrib.values], textposition="outside"))
+    fig.add_vline(x=0, line=dict(color="#333", width=1))
+    fig.update_layout(height=230, margin=dict(l=10, r=40, t=10, b=10),
+                      xaxis_title=f"contribution to index (sum = {rai:+.2f})")
+    st.plotly_chart(fig, use_container_width=True, key=f"rai_blocks_{key}")
+
+    # Signed z goes in as text: Streamlit renders a missing number as "None"
+    # regardless of the Styler's formatting, and the colour is keyed off the
+    # numeric value separately.
+    show = tab.sort_values("separation", ascending=False).reset_index(drop=True)
+    z = show["signed_z"].to_numpy()
+    show["signed_z"] = ["–" if not np.isfinite(v) else f"{v:+.2f}" for v in z]
+    show = show.rename(columns={"signed_z": "today (signed z)"})
+    z_styles = [_signed_z_style(v) for v in z]
+    st.dataframe(
+        show.style.format({"weight": "{:.3f}", "contribution": "{:+.3f}",
+                           "separation": "{:.2f}"})
+            .apply(lambda col: z_styles, subset=["today (signed z)"]),
+        use_container_width=True, hide_index=True, key=f"rai_table_{key}")
+    st.caption(
+        "Signed z is positive when the feature reads risk-on. Weight is the "
+        "feature's share of the index; contribution is weight × signed z, and "
+        "the contributions add up to the index. Separation is the spread of the "
+        "regime averages divided by the typical spread within a regime: high "
+        "values are the features the HMM leans on to tell regimes apart. "
+        "Features marked 'not in index' feed the HMM but not the index. Sorted "
+        "by separation.")
+
+    return dict(lab=lab, L=L, rs=rs, hf=hf, short=short, now=now, in_idx=in_idx)
+
+
 # --------------------------------------------------------------------------
 # Sidebar
 # --------------------------------------------------------------------------
@@ -363,6 +458,10 @@ with tabs[1]:
     f2.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10),
                      yaxis_title="risk appetite (z)")
     st.plotly_chart(f2, use_container_width=True)
+
+    render_rai_decomposition(state, key="chars")
+    st.caption("The Method tab explains how the index is built and why it can "
+               "diverge from the regime.")
 
 # --------------------------------------------------------------------------
 # 3. Transitions
@@ -564,77 +663,11 @@ with tabs[4]:
 # 6. Method
 # --------------------------------------------------------------------------
 def render_rai_panel(state) -> None:
-    """Today's risk-appetite reading, decomposed, for the selected model."""
-    from regimelab.labeling import RISK_BLOCKS
-
-    lab = state.labeler
-    L = state.features[lab.columns_]
-    Z = pd.DataFrame(lab.scaler_.transform(L.values), index=L.index, columns=L.columns)
-    rs = state.risk_score
-    hf = state.proba_filtered.values.argmax(axis=1)
-    short = [n.split(" (")[0] for n in state.regime_names]
-    now, rai = int(hf[-1]), float(rs.iloc[-1])
-
+    """Today's risk-appetite reading, decomposed and diagnosed."""
     st.markdown("#### Today's reading, for the model selected in the sidebar")
-
-    in_state = rs.values[hf == now]
-    q25, q75 = np.quantile(in_state, [0.25, 0.75])
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Risk-appetite index", f"{rai:+.2f}")
-    c2.metric(f"Typical range in {short[now]}", f"{q25:+.2f} to {q75:+.2f}",
-              help="Interquartile range of the index on days the real-time "
-                   "regime was this one.")
-    c3.metric(f"Percentile within {short[now]}", f"{np.mean(in_state <= rai):.0%}")
-
-    # Separation: how far apart the regimes sit on a feature, relative to the
-    # spread within a regime.  A rough proxy for the weight the HMM gives it.
-    sep = Z.groupby(hf).mean().std() / Z.groupby(hf).std().mean()
-
-    blocks = {b: [c for c in spec if c in Z.columns] for b, spec in RISK_BLOCKS.items()}
-    blocks = {b: cols for b, cols in blocks.items() if cols}
-    n_blocks = len(blocks)
-    rows = []
-    for b, cols in blocks.items():
-        for c in cols:
-            w = 1.0 / n_blocks / len(cols)
-            sz = RISK_BLOCKS[b][c] * float(Z[c].iloc[-1])
-            rows.append(dict(block=b, feature=c, weight=w, signed_z=sz,
-                             contribution=w * sz, separation=float(sep[c])))
-    for c in lab.columns_:
-        if not any(c in cols for cols in blocks.values()):
-            rows.append(dict(block="not in index", feature=c, weight=0.0,
-                             signed_z=np.nan, contribution=0.0,
-                             separation=float(sep[c])))
-    tab = pd.DataFrame(rows)
-    in_idx = tab[tab["block"] != "not in index"]
-
-    st.markdown("**Where today's index value comes from**")
-    contrib = in_idx.groupby("block", sort=False)["contribution"].sum()
-    fig = go.Figure(go.Bar(
-        x=contrib.values, y=contrib.index, orientation="h",
-        marker_color=[ON_COLOR if v >= 0 else OFF_COLOR for v in contrib.values],
-        text=[f"{v:+.2f}" for v in contrib.values], textposition="outside"))
-    fig.add_vline(x=0, line=dict(color="#333", width=1))
-    fig.update_layout(height=230, margin=dict(l=10, r=40, t=10, b=10),
-                      xaxis_title=f"contribution to index (sum = {rai:+.2f})")
-    st.plotly_chart(fig, use_container_width=True)
-
-    show = tab.sort_values("separation", ascending=False).rename(columns={
-        "signed_z": "today (signed z)", "contribution": "contribution",
-        "separation": "separation"})
-    st.dataframe(
-        show.style.format({"weight": "{:.3f}", "today (signed z)": "{:+.2f}",
-                           "contribution": "{:+.3f}", "separation": "{:.2f}"},
-                          na_rep="–")
-            .background_gradient(cmap="RdBu", vmin=-2, vmax=2,
-                                 subset=["today (signed z)"]),
-        use_container_width=True, hide_index=True)
-    st.caption(
-        "Signed z is positive when the feature reads risk-on. Weight is the "
-        "feature's share of the index. Separation is the spread of the regime "
-        "averages divided by the typical spread within a regime: high values "
-        "are the features the HMM leans on to tell regimes apart. Sorted by "
-        "separation.")
+    d = render_rai_decomposition(state, key="method")
+    lab, L, rs, hf = d["lab"], d["L"], d["rs"], d["hf"]
+    short, now, in_idx = d["short"], d["now"], d["in_idx"]
 
     # Plain-language diagnosis, generated from the numbers above.
     drags = in_idx[in_idx["contribution"] < 0].nsmallest(2, "contribution")
