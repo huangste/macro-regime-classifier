@@ -29,6 +29,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from regimelab.config import ARTIFACT_DIR, FORECAST_HORIZONS
+from regimelab.data import cache_signature, update_cache
 from regimelab.evaluation import reliability_table, summarise_predictions
 from regimelab.pipeline import build_state
 
@@ -49,10 +50,22 @@ def regime_palette(k: int) -> list[str]:
 # --------------------------------------------------------------------------
 # Model state
 # --------------------------------------------------------------------------
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def auto_update() -> dict:
+    """Fetch only data newer than the cache, at most once every six hours.
+
+    The cache committed with the app holds the full history, so this is a few
+    days of rows per series, and a failed download simply leaves the cached
+    history in place.
+    """
+    return update_cache()
+
+
 @st.cache_resource(show_spinner=False)
-def get_state(sample: str, k: int, method: str, refresh: bool):
-    return build_state(sample=sample, n_regimes=k, labeler_method=method,
-                       refresh_data=refresh)
+def get_state(sample: str, k: int, method: str, data_signature: str):
+    # ``data_signature`` is only a cache key: it changes when any series gains
+    # a new last date, so the model is refitted exactly when the data moves.
+    return build_state(sample=sample, n_regimes=k, labeler_method=method)
 
 
 @st.cache_data(show_spinner=False)
@@ -269,7 +282,7 @@ def render_rai_decomposition(state, key: str) -> dict:
     fig.add_vline(x=0, line=dict(color="#333", width=1))
     fig.update_layout(height=230, margin=dict(l=10, r=40, t=10, b=10),
                       xaxis_title=f"contribution to index (sum = {rai:+.2f})")
-    st.plotly_chart(fig, use_container_width=True, key=f"rai_blocks_{key}")
+    st.plotly_chart(fig, width="stretch", key=f"rai_blocks_{key}")
 
     # Signed z goes in as text: Streamlit renders a missing number as "None"
     # regardless of the Styler's formatting, and the colour is keyed off the
@@ -283,7 +296,7 @@ def render_rai_decomposition(state, key: str) -> dict:
         show.style.format({"weight": "{:.3f}", "contribution": "{:+.3f}",
                            "separation": "{:.2f}"})
             .apply(lambda col: z_styles, subset=["today (signed z)"]),
-        use_container_width=True, hide_index=True, key=f"rai_table_{key}")
+        width="stretch", hide_index=True, key=f"rai_table_{key}")
     st.caption(
         "Signed z is positive when the feature reads risk-on. Weight is the "
         "feature's share of the index; contribution is weight × signed z, and "
@@ -310,16 +323,28 @@ method = st.sidebar.selectbox(
     help="hmm models persistence and is the default; gmm reproduces the "
          "original notebook's estimator; score is a transparent quantile "
          "baseline on the risk-appetite index.")
-refresh = st.sidebar.button("Refresh market data")
+with st.spinner("Checking for new market data..."):
+    update_report = auto_update()
+if st.sidebar.button("Update market data now",
+                     help="Downloads only the days after the last stored date. "
+                          "The app also does this automatically every six hours."):
+    with st.spinner("Downloading new market data..."):
+        st.session_state["update_report"] = update_cache()
+update_report = st.session_state.get("update_report", update_report)
 
 with st.spinner("Fitting regime model..."):
-    state = get_state(sample, k, method, bool(refresh))
+    state = get_state(sample, k, method, cache_signature())
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
     f"**{state.meta['n_days']:,}** trading days  \n"
     f"{state.meta['start']} to {state.meta['end']}  \n"
     f"built {state.built_at.replace('T', ' ')}")
+failed = [name for name, r in update_report.items() if not r["ok"]]
+if failed:
+    st.sidebar.warning(
+        f"Could not fetch new data for {', '.join(failed)}; using the stored "
+        f"history for those series. The model is as of {state.meta['end']}.")
 
 bench = get_benchmark()
 
@@ -363,7 +388,7 @@ st.dataframe(
       .background_gradient(cmap="Blues", axis=None,
                            subset=[c for c in bt.columns if c != "P(risk-off)"])
       .background_gradient(cmap="Reds", vmin=0, vmax=1, subset=["P(risk-off)"]),
-    use_container_width=True)
+    width="stretch")
 st.caption(
     "Row h: where the market was h trading days later, historically, starting "
     "from today's regime. Estimated from real-time (filtered) states over the "
@@ -391,8 +416,8 @@ with tabs[0]:
     rng = st.slider("Period", yr0, yr1, (max(yr0, 1995), yr1))
     lo, hi = f"{rng[0]}-01-01", f"{rng[1]}-12-31"
 
-    st.plotly_chart(regime_timeline(state, lo, hi), use_container_width=True)
-    st.plotly_chart(risk_off_history(state, lo, hi), use_container_width=True)
+    st.plotly_chart(regime_timeline(state, lo, hi), width="stretch")
+    st.plotly_chart(risk_off_history(state, lo, hi), width="stretch")
 
     st.markdown("**Regime episodes**")
     ep = state.episodes.copy()
@@ -401,7 +426,7 @@ with tabs[0]:
     ep["start"] = ep["start"].dt.date
     ep["end"] = ep["end"].dt.date
     st.dataframe(ep.sort_values("days", ascending=False),
-                 use_container_width=True, hide_index=True, height=300)
+                 width="stretch", hide_index=True, height=300)
 
 # --------------------------------------------------------------------------
 # 2. Characteristics
@@ -417,7 +442,7 @@ with tabs[1]:
         "Curve_10y2y": "{:+.2f}", "US10y": "{:.2f}",
     }
     st.dataframe(ch.style.format({c: f for c, f in fmt.items() if c in ch.columns}),
-                 use_container_width=True)
+                 width="stretch")
     st.caption(
         "Return statistics are *next-day* S&P outcomes conditional on being in "
         "the state today, annualised. Canonical index 0 is always the most "
@@ -429,7 +454,7 @@ with tabs[1]:
     ar.index = [n.split(" (")[0] for n in state.regime_names]
     st.dataframe(
         ar.style.format("{:+.1f}").background_gradient(cmap="RdYlGn", axis=None),
-        use_container_width=True)
+        width="stretch")
     st.caption(
         "Equity and commodity columns are annualised percentage returns; rate "
         "and spread columns are annualised changes in basis points. This is "
@@ -447,7 +472,7 @@ with tabs[1]:
         colorscale="RdBu", zmid=0, colorbar=dict(title="z"),
         text=np.round(prof.values, 2), texttemplate="%{text}"))
     fig.update_layout(height=520, margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.markdown("**Risk-appetite index**")
     rs = state.risk_score
@@ -457,7 +482,7 @@ with tabs[1]:
     f2.add_hline(y=0, line=dict(color="#999", dash="dash"))
     f2.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10),
                      yaxis_title="risk appetite (z)")
-    st.plotly_chart(f2, use_container_width=True)
+    st.plotly_chart(f2, width="stretch")
 
     render_rai_decomposition(state, key="chars")
     st.caption("The Method tab explains how the index is built and why it can "
@@ -476,13 +501,13 @@ with tabs[2]:
         st.plotly_chart(
             transition_heatmap(T, state.regime_names,
                                f"P(state at t+{h_sel} | state at t)"),
-            use_container_width=True)
+            width="stretch")
     with c2:
         st.markdown("**Expected time in state**")
         dur = state.expected_durations.copy()
         dur.index = [n.split(" (")[0] for n in state.regime_names]
         st.dataframe(dur.round(0).to_frame("trading days"),
-                     use_container_width=True)
+                     width="stretch")
 
         ev = np.linalg.eig(state.transitions[1].values.T)
         i = int(np.argmin(np.abs(ev[0] - 1)))
@@ -490,7 +515,7 @@ with tabs[2]:
         st.markdown("**Long-run share of time**")
         st.dataframe(pd.DataFrame(
             {"share": pi}, index=[n.split(" (")[0] for n in state.regime_names]
-        ).style.format({"share": "{:.1%}"}), use_container_width=True)
+        ).style.format({"share": "{:.1%}"}), width="stretch")
 
         st.caption(
             "Rows of the one-step matrix are dominated by the diagonal, which "
@@ -566,12 +591,12 @@ with tabs[3]:
     default = [m for m in ["blend50|compact|logit_reg", "persist_markov",
                            "hmm_analytic", "uncond"] if m in available]
     chosen = st.multiselect("Models", available, default=default)
-    st.plotly_chart(forecast_chart(fc, target, chosen), use_container_width=True)
+    st.plotly_chart(forecast_chart(fc, target, chosen), width="stretch")
 
     tab = (fc[fc["target"] == target]
            .pivot_table(index="horizon", columns="model", values="prob"))
     keep = [c for c in chosen if c in tab.columns]
-    st.dataframe(tab[keep].style.format("{:.1%}"), use_container_width=True)
+    st.dataframe(tab[keep].style.format("{:.1%}"), width="stretch")
 
     if bench is not None:
         st.markdown("**Out-of-sample skill of each of these methods**")
@@ -581,7 +606,7 @@ with tabs[3]:
         st.dataframe(
             b[keep].style.format("{:+.1%}").background_gradient(
                 cmap="RdYlGn", vmin=-0.15, vmax=0.15),
-            use_container_width=True)
+            width="stretch")
         st.caption(
             "Skill is the fraction of the persistence benchmark's log loss "
             "removed, measured on purged walk-forward folds. Values at or "
@@ -602,7 +627,7 @@ with tabs[4]:
                    "`python experiments/03_forecast_benchmark.py`.")
     else:
         tgt = st.selectbox("Target", sorted(bench["target"].unique()), key="diag_t")
-        st.plotly_chart(skill_chart(bench, tgt), use_container_width=True)
+        st.plotly_chart(skill_chart(bench, tgt), width="stretch")
 
         st.markdown("**Full out-of-sample table**")
         show = bench[bench["target"] == tgt].drop(columns=["target"])
@@ -610,7 +635,7 @@ with tabs[4]:
             show.style.format({
                 "log_loss": "{:.4f}", "brier": "{:.4f}", "auc": "{:.3f}",
                 "skill_vs_base": "{:+.2%}", "dm_t": "{:+.2f}", "dm_p": "{:.3f}"}),
-            use_container_width=True, hide_index=True, height=430)
+            width="stretch", hide_index=True, height=430)
         st.caption(
             "`dm_t` is a Diebold-Mariano statistic on daily log-loss "
             "differentials with a Newey-West variance at bandwidth 2h; "
@@ -643,8 +668,8 @@ with tabs[4]:
                             yaxis_title="observed frequency",
                             margin=dict(l=10, r=10, t=10, b=10))
             c1, c2 = st.columns([3, 2])
-            c1.plotly_chart(f, use_container_width=True)
-            c2.dataframe(rel.round(3), use_container_width=True, hide_index=True)
+            c1.plotly_chart(f, width="stretch")
+            c2.dataframe(rel.round(3), width="stretch", hide_index=True)
 
     st.markdown("---")
     st.markdown("**Label stability**")
@@ -715,7 +740,7 @@ def render_rai_panel(state) -> None:
     if emis is not None:
         post = pd.DataFrame({"today's data only": emis,
                              "with regime memory (filtered)": filt}, index=short)
-        st.dataframe(post.style.format("{:.1%}"), use_container_width=True)
+        st.dataframe(post.style.format("{:.1%}"), width="stretch")
 
     on = ~state.risk_off_mask[hf]
     st.markdown("**How often the two diverge, over the full sample**")
@@ -731,7 +756,7 @@ def render_rai_panel(state) -> None:
             "index-nearest regime = HMM regime (exact state)",
             "index-nearest regime = HMM regime (risk-on vs risk-off)",
         ])
-    st.dataframe(freq.style.format({"share": "{:.1%}"}), use_container_width=True)
+    st.dataframe(freq.style.format({"share": "{:.1%}"}), width="stretch")
 
 
 with tabs[5]:

@@ -82,7 +82,21 @@ random seed.
 
 ## Data
 
-Prices from Yahoo Finance; rates, credit spreads, oil and VIX from FRED. All
-downloads are cached as CSV under `data/cache/`, so runs are reproducible and
-work offline once populated. Delete the cache or press **Refresh market data**
-in the app to re-download.
+Prices from Yahoo Finance; rates, credit spreads, oil and VIX from FRED. The
+full history is stored as CSV under `data/cache/` and committed, so the app
+and every experiment run offline and reproducibly from a fresh clone.
+
+Updates are incremental: only the days after the last stored date are
+downloaded (plus a two-week overlap to pick up revisions) and merged in. The
+app does this automatically at most every six hours, and **Update market
+data now** in the sidebar does it on demand. If a source is unreachable the
+stored history is kept and the sidebar says which series are stale. Yahoo
+bars are stored only once the New York session has closed, so a pre-open or
+intraday price never stands in for a close. From Python:
+
+```python
+from regimelab.data import update_cache
+update_cache()
+```
+
+Data sources remain subject to their providers' terms of use.
