@@ -234,17 +234,48 @@ bench = get_benchmark()
 st.title("Market regime research")
 
 p_off_now = float(state.proba_filtered.values[-1][state.risk_off_mask].sum())
-cur = int(state.labels.iloc[-1])
-cur_f = int(state.proba_filtered.values[-1].argmax())
+hard_f = state.proba_filtered.values.argmax(axis=1)
+cur_f = int(hard_f[-1])
+cur_name = state.regime_names[cur_f].split(" (")[0]
+cur_side = "Risk-off" if state.risk_off_mask[cur_f] else "Risk-on"
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Current state (real time)", state.regime_names[cur_f].split(" (")[0])
-c2.metric("P(risk-off) today",
+run_start = len(hard_f) - 1
+while run_start > 0 and hard_f[run_start - 1] == cur_f:
+    run_start -= 1
+days_in = len(hard_f) - run_start
+since = state.proba_filtered.index[run_start].date()
+typical = float(state.expected_durations.iloc[cur_f])
+
+st.subheader(f"Current regime: {cur_name}  ·  {cur_side}")
+
+c1, c2, c3, c4, c5 = st.columns([2.2, 1, 1, 1, 1.2])
+c1.metric("Current regime (real time)", cur_name,
+          delta=cur_side, delta_color="inverse" if cur_side == "Risk-off" else "normal")
+c2.metric("Days in regime", f"{days_in}", help=f"In this state since {since}. "
+          f"Typical episode length for this state: about {typical:.0f} trading days.")
+c3.metric("P(risk-off) today",
           "<0.1%" if p_off_now < 0.001 else f"{p_off_now:.1%}")
-c3.metric("Risk-appetite index", f"{state.risk_score.iloc[-1]:+.2f}",
+c4.metric("Risk-appetite index", f"{state.risk_score.iloc[-1]:+.2f}",
           help="Block-weighted z-score of equity trend, volatility, credit and "
                "carry. Zero is the sample average.")
-c4.metric("As of", state.meta["end"])
+c5.metric("As of", state.meta["end"])
+
+st.markdown(f"**Baseline transition probability from {cur_name}**")
+bt = state.baseline_transition.copy()
+bt.index = [f"{h} day" if h == 1 else f"{h} days" for h in bt.index]
+st.dataframe(
+    bt.style.format("{:.1%}")
+      .background_gradient(cmap="Blues", axis=None,
+                           subset=[c for c in bt.columns if c != "P(risk-off)"])
+      .background_gradient(cmap="Reds", vmin=0, vmax=1, subset=["P(risk-off)"]),
+    use_container_width=True)
+st.caption(
+    "Row h: where the market was h trading days later, historically, starting "
+    "from today's regime. Estimated from real-time (filtered) states over the "
+    "full sample. This is the persistence benchmark every forecast in the app "
+    "is measured against; the Forecasts tab shows what the models add to it.")
+
+st.markdown("")
 
 tabs = st.tabs([
     "Historical regimes", "Characteristics", "Transitions",

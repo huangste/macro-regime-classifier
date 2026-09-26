@@ -77,10 +77,35 @@ class RegimeModelState:
     episodes: pd.DataFrame
     transitions: dict[int, pd.DataFrame]
     expected_durations: pd.Series
+    baseline_transition: pd.DataFrame  # from today's real-time state
 
     forecasts: pd.DataFrame           # live forward probabilities
     labeler: object = None
     meta: dict = field(default_factory=dict)
+
+
+def baseline_transition_table(
+    hard_filtered: np.ndarray,
+    risk_off_mask: np.ndarray,
+    names: list[str],
+    horizons: tuple[int, ...],
+) -> pd.DataFrame:
+    """P(state at t+h | today's state) for each horizon, plus P(risk-off).
+
+    Estimated from real-time filtered states, which is exactly the matrix the
+    ``persist_markov`` benchmark forecasts with, so the two always agree.
+    """
+    k = len(names)
+    now = int(hard_filtered[-1])
+    rows = {}
+    for h in horizons:
+        P = empirical_transition_matrix(pd.Series(hard_filtered), horizon=h,
+                                        n_regimes=k).values
+        rows[h] = list(P[now]) + [float(P[now] @ risk_off_mask.astype(float))]
+    cols = [n.split(" (")[0] for n in names] + ["P(risk-off)"]
+    df = pd.DataFrame.from_dict(rows, orient="index", columns=cols)
+    df.index.name = "horizon"
+    return df
 
 
 def expected_durations(trans_1d: pd.DataFrame) -> pd.Series:
@@ -136,8 +161,9 @@ def live_forecasts(
             rows.append(dict(horizon=h, target=kind, model="uncond", prob=base))
 
             if kind == "point_in_time":
+                # Full filtered history, matching baseline_transition_table.
                 P = empirical_transition_matrix(
-                    pd.Series(hard_filtered[idx]), horizon=h, n_regimes=n_regimes).values
+                    pd.Series(hard_filtered), horizon=h, n_regimes=n_regimes).values
                 p_off = P @ mask
             else:
                 p_off = np.array([
@@ -251,6 +277,8 @@ def build_state(
         episodes=episode_table(labels, min_days=5),
         transitions=trans,
         expected_durations=expected_durations(trans[1]),
+        baseline_transition=baseline_transition_table(
+            hard_f, mask, labeler.names(), (1,) + tuple(horizons)),
         forecasts=fc,
         labeler=labeler,
         meta={"n_days": len(features),
