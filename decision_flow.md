@@ -1,0 +1,103 @@
+In my capstone project, I aim to identify market regimes and estimate regime transition probabilities using cross-asset financial data.
+A key challenge in this setting is class imbalance, as crisis regimes are rare compared to normal market conditions. 
+This raises important considerations around the use of oversampling and cross-validation techniques.
+
+#data imbalance
+The data is inherently imbalanced. Most periods fall into steady or transition regimes, while crisis periods are infrequent but economically significant. 
+In standard machine learning problems such as fraud detection, oversampling is often used to increase the representation of rare classes, 
+allowing the model to better detect these events. However, in financial applications, the trade-off is more nuanced.
+
+#oversampling 
+Oversampling crisis periods may improve the model’s ability to detect rare events, but it also increases the risk of false positives. 
+In a trading context, falsely identifying a crisis regime can be costly, leading to unnecessary de-risking, missed upside or excessive hedging. 
+Unlike fraud detection, where missing a rare event is often more costly than over-detection, 
+in financial markets both types of errors carry significant economic consequences. For this reason, I would be cautious about using oversampling as a primary method. 
+Instead, I would be more likely to use class weighting or threshold adjustment, 
+which can increase sensitivity to rare regimes without artificially altering the underlying data distribution. 
+For example I can use LogisticRegression(class_weight='balanced') to add weight on crisis period. 
+
+#cross validation
+Cross-validation is useful, but it must be adapted for time-series data. 
+Standard k-fold cross-validation assumes that observations are independent and can be randomly shuffled, which is not appropriate in this context due to temporal dependency and the risk of look-ahead bias. 
+Instead, I would use a time-based cross-validation approach, such as rolling or expanding windows. 
+In practice, this could be implemented using TimeSeriesSplit in scikit-learn, which preserves the chronological order of the data and 
+allows the model to be evaluated on future periods only. 
+
+example code:
+tscv = TimeSeriesSplit(n_splits=5)
+for train_index, val_index in tscv.split(X):
+    X_train, X_val = X[train_index], X[val_index]
+
+Time-based cross-validation is particularly helpful given the limited number of crisis events. 
+By evaluating the model across multiple historical windows, I can test whether the regime classification 
+and transition probabilities are robust across different market environments, rather than relying on a single validation period. 
+This provides a more reliable assessment of model stability.
+
+While in supervised learning I can use cross validation score, for unsupervised learning, the validation become: experienced learned from past still make sense in the future? we can use a mix of silhouette, persistence, explained variance, and stability, plus economic interpretation. 
+so the work flow becomes like:
+
+example code:
+for train_idx, val_idx in tscv.split(X):
+
+    # Step 1: fit PCA + GMM on TRAIN
+    pca.fit(X_train)
+    gmm.fit(pca.transform(X_train))
+
+    # Step 2: apply to VALIDATION
+    X_val_pca = pca.transform(X_val)
+    regimes_val = gmm.predict(X_val_pca)
+
+    # Step 3: evaluate
+    # (stability, interpretation, persistence)
+
+
+#Multinomial logistic regression
+For the transition probability model, cross-validation also plays an important role in evaluating predictive performance. 
+Rather than focusing on simple classification accuracy, I would assess the quality of predicted probabilities using metrics such as log loss, and compare them with empirical transition frequencies. 
+I would also examine whether elevated predicted probabilities of adverse regimes correspond to realised stress periods, 
+which is more relevant for practical decision-making.
+The primary candidate is a multinomial logistic regression and benchmark is 1) random forest  2) Gradient Boosting / XGBoost-style model 3) Kernel ridge regression
+and when we run scores, it is not correct vs incorrect, it is rather on transition probability, so log loss is better. 
+This is why in the following code we add ( scoring='neg_log_loss') for cross validation, as log loss lower is better so we need to change to negative log loss
+
+example code:
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.linear_model import LogisticRegression
+
+ts = TimeSeriesSplit(n_splits=5)
+
+model = LogisticRegression(
+    multi_class='multinomial',
+    max_iter=1000
+)
+
+scores = cross_val_score(
+    model,
+    X,
+    y,
+    cv=ts,
+    scoring='neg_log_loss'
+)
+
+# Calculate transition probability
+so the final output we are interested in is (P(y_{t+1}=crisis/x_t= WOI)， this sounds the need of Bayesian style forumula, but the supervised multinominal logistic regression already did that X_t → predict y_{t+1}. I can simpy use model.predict_proba(X_t) from multinominal logistic regression. 
+Output will be [P(Risk-on), P(WOI), P(Crisis), P(Inflation)] the label of y will be coming from unsupervised learning. This can be compare against empirical tranisition matrix P(next regime | current regime):
+
+Example code:
+
+from collections import Counter
+counts = Counter(zip(y_t, y_t1))
+
+# summary
+Key work flow:
+1, Feature construction: Build cross-asset features (returns, spreads, volatility)
+2, PCA - reduce dimension find k states
+3, GMM - label GMM(n_components=k) and find labels output: y_t = regime label at time t
+4,multinominal logistic regression find k transition probabilities output: P(Risk-on), P(WOI), P(Crisis), P(Inflation)
+5, validation and hyperparameters tuning- PCA: explained variance, stability- GMM: cluster persistence, separation, economic meaning; - TimeSeriesSplit
+- Log loss (main metric)- Confusion matrix (secondary)- Crisis detection quality
+
+The 4th step can try a different models as listed in prevous paragraph
+
+Overall, while oversampling can theoretically address class imbalance, its application in financial regime modelling is limited by the economic cost of false positives. 
+In contrast, class weighting, threshold adjustment and time-based cross-validation provide a more robust and realistic framework for evaluating both regime classification and transition probabilities in a non-stationary financial setting.

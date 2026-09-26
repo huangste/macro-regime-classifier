@@ -1,25 +1,57 @@
-# Market regime research
+# macro-regime-classifier
+Cross-asset machine learning model for identifying macro market regimes
+
+Features include:
+
+- Equity market indicators
+- Volatility metrics
+- FX signals
+- Credit spreads
+- Yield curve structure
+
+The goal is to classify market states such as:
+
+- Steady / Risk-On
+- Transition / Walk-On-Ice
+- Crisis
+- Inflation
+
+This project is part of the Imperial College AI & Machine Learning Certificate capstone work.
+
+[Open the notebook in Colab](https://colab.research.google.com/github/huangste/macro-regime-classifier/blob/main/Regime_Model_v2_feature_engineering.ipynb)
+
+---
+
+## Market regime research
 
 Unsupervised classification of historical market regimes, plus an honest
-assessment of how far those regimes can be forecast.
+assessment of how far those regimes can be forecast, with a Streamlit
+research application on top.
 
 ## Layout
 
 ```
-original/     the notebook exactly as received, preserved and runnable
+Regime_Model_v2_feature_engineering.ipynb   the working notebook (latest Colab version)
+original/     the notebook exactly as used for the research below, preserved and runnable
 regimelab/    the research library
 experiments/  numbered research scripts; each writes a report
 reports/      generated findings, plus METHODOLOGY.md
 app/          the Streamlit application
-tests/        look-ahead and label-stability tests
-artifacts/    cached fitted state and evaluation outputs
-data/cache/   cached price and FRED downloads
+tests/        look-ahead, label-stability and data-update tests
+artifacts/    evaluation outputs used by the app
+data/cache/   stored price and FRED history
+
+decision_flow.md, HyperparameterTuning,
+BBO_stage2_exploration_week2.ipynb           earlier capstone notes and exploration
 ```
 
-The original notebook is untouched in `original/` and is the first commit in
-the repository, so the historical classification it produced can always be
-reproduced. `experiments/01_reproduce_original.py` re-runs its pipeline
-end-to-end and prints both its published numbers and the diagnostics.
+`original/` holds the exact notebook version the research reproduced and
+diagnosed. The root-level notebook is the later Colab version; the two differ
+in their hand-mapped regime numbering (regimes 0 and 1 swap names, and the
+risk-off mask moves from `[0, 2]` to `[3, 4]`), which is the label-instability
+problem the new labelling removes. `experiments/01_reproduce_original.py`
+re-runs the `original/` pipeline end-to-end and prints both its published
+numbers and the diagnostics.
 
 ## Running it
 
@@ -29,22 +61,22 @@ Install dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Fetch data and fit the production model (writes `artifacts/model_state.joblib`):
-
-```bash
-python -m regimelab.pipeline
-```
-
 Start the application:
 
 ```bash
 python -m streamlit run app/streamlit_app.py
 ```
 
-The app fits its own model on first load and caches it, so `regimelab.pipeline`
-is optional. What is *not* optional for the diagnostics tab is experiment 3,
-which produces the out-of-sample skill tables the app displays next to every
-forecast:
+The app fits its model on first load and caches it. To fit and save the model
+from the command line instead (writes `artifacts/model_state.joblib`):
+
+```bash
+python -m regimelab.pipeline
+```
+
+The diagnostics tab reads the out-of-sample skill tables that experiments 3,
+6 and 7 produce; they are committed, so this is only needed to regenerate
+them:
 
 ```bash
 python experiments/03_forecast_benchmark.py
@@ -77,8 +109,8 @@ python -m pytest tests/ -q
 
 The suite is mostly methodological rather than functional: it perturbs the
 future and asserts that features, filtered state estimates and walk-forward
-folds do not move, and it asserts that regime labels are invariant to the
-random seed.
+folds do not move, it asserts that regime labels are invariant to the random
+seed, and it checks that data updates only fetch what is new.
 
 ## Data
 
