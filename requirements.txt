@@ -1,0 +1,13 @@
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+scipy>=1.13
+hmmlearn>=0.3.3
+statsmodels>=0.14
+yfinance>=0.2.40
+plotly>=5.20
+streamlit>=1.35
+joblib>=1.4
+pyarrow>=15.0
+tabulate>=0.9
+pytest>=8.0
