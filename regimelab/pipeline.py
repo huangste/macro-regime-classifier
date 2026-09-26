@@ -31,6 +31,7 @@ from .forecasting import (
     APP_COMBOS,
     any_in_window_target,
     build_designs,
+    forward_market_quantities,
     model_zoo,
     point_in_time_target,
 )
@@ -90,6 +91,7 @@ def expected_durations(trans_1d: pd.DataFrame) -> pd.Series:
 
 def live_forecasts(
     features: pd.DataFrame,
+    panel: pd.DataFrame,
     labeler: RegimeLabeler,
     proba_filtered: pd.DataFrame,
     risk_off_filtered: np.ndarray,
@@ -116,10 +118,16 @@ def live_forecasts(
 
     rows = []
     for h in horizons:
-        for kind in ("point_in_time", "any_in_window"):
-            y_all = (point_in_time_target(risk_off_filtered, h)
-                     if kind == "point_in_time"
-                     else any_in_window_target(risk_off_filtered, h))
+        market = forward_market_quantities(panel, features.index, h)
+        for kind in ("point_in_time", "any_in_window", "mkt_high_vol"):
+            if kind == "point_in_time":
+                y_all = point_in_time_target(risk_off_filtered, h)
+            elif kind == "any_in_window":
+                y_all = any_in_window_target(risk_off_filtered, h)
+            else:
+                v = market["fwd_vol"]
+                y_all = np.where(np.isfinite(v),
+                                 (v > np.nanmedian(v)).astype(float), np.nan)
             ok = np.isfinite(y_all)
             idx = np.where(ok)[0]
             y = y_all[idx]
@@ -140,7 +148,7 @@ def live_forecasts(
             rows.append(dict(horizon=h, target=kind, model="persist_markov",
                              prob=float(np.clip(p_off[state_now], 1e-4, 1 - 1e-4))))
 
-            if A is not None:
+            if A is not None and kind != "mkt_high_vol":
                 A_can = A[np.ix_(inv, inv)]
                 if kind == "point_in_time":
                     p = float((post_now @ np.linalg.matrix_power(A_can, h)) @ mask)
@@ -219,7 +227,7 @@ def build_state(
     trans = {h: empirical_transition_matrix(labels, horizon=h, n_regimes=n_regimes)
              for h in (1,) + tuple(horizons)}
 
-    fc = live_forecasts(features, labeler, proba_f, risk_off_f.values.astype(float),
+    fc = live_forecasts(features, panel, labeler, proba_f, risk_off_f.values.astype(float),
                         hard_f, horizons=horizons, random_state=random_state)
 
     return RegimeModelState(

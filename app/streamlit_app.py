@@ -378,36 +378,54 @@ with tabs[3]:
 
     target = st.radio(
         "What is being forecast",
-        ["any_in_window", "point_in_time"], horizontal=True,
+        ["any_in_window", "point_in_time", "mkt_high_vol"], horizontal=True,
         format_func=lambda s: {
-            "any_in_window": "P(at least one risk-off day in the next h days)",
-            "point_in_time": "P(risk-off exactly h days from now)",
+            "any_in_window": "At least one risk-off day in the next h days",
+            "point_in_time": "Risk-off exactly h days from now",
+            "mkt_high_vol": "High realised volatility over the next h days",
         }[s])
 
     st.info({
         "any_in_window":
-            "This rises with the horizon by construction: a longer window has "
-            "more chances to contain a risk-off day. It is the quantity most "
-            "useful for risk management.",
+            "P(at least one risk-off day in (t, t+h]). This rises with the "
+            "horizon by construction: a longer window has more chances to "
+            "contain a risk-off day. It is the quantity most useful for risk "
+            "management.",
         "point_in_time":
-            "This decays towards the unconditional base rate as the horizon "
-            "grows, because a single distant day is close to a draw from the "
-            "stationary distribution. A flat or rising curve here would be a "
-            "red flag.",
+            "P(the regime is risk-off on day t+h). This decays towards the "
+            "unconditional base rate as the horizon grows, because a single "
+            "distant day is close to a draw from the stationary distribution. "
+            "A flat or rising curve here would be a red flag.",
+        "mkt_high_vol":
+            "P(realised S&P volatility over (t, t+h] exceeds its historical "
+            "median). Unlike the two regime targets this event is directly "
+            "observable and shares no data with the features, and it is the "
+            "target on which the model has by far the strongest out-of-sample "
+            "evidence.",
     }[target])
 
     fc = state.forecasts
     available = list(dict.fromkeys(fc["model"]))
 
-    HEADLINE = "blend50|compact|logit_reg"
-    if HEADLINE in available:
-        st.markdown("**Headline forecast**")
-        st.caption(
+    HEADLINE = ("compact|logit_reg" if target == "mkt_high_vol"
+                else "blend50|compact|logit_reg")
+    BLURB = {
+        "mkt_high_vol":
+            "A regularised logistic model on twelve economically chosen "
+            "features plus the current state posterior. On this target it "
+            "beats the persistence benchmark by around a quarter of its log "
+            "loss at every horizon, with p-values below 0.0001 — no "
+            "combination needed.",
+        "regime":
             "A regularised logistic model on twelve economically chosen "
             "features plus the current state posterior, averaged equally with "
-            "the persistence benchmark. This is the only specification that "
-            "showed positive out-of-sample skill significant at the 5% level "
-            "at *every* horizon and under *both* target definitions.")
+            "the persistence benchmark. This is the specification that showed "
+            "positive out-of-sample skill significant at the 5% level at "
+            "*every* horizon and under *both* regime target definitions.",
+    }
+    if HEADLINE in available:
+        st.markdown("**Headline forecast**")
+        st.caption(BLURB.get(target, BLURB["regime"]))
         head = (fc[(fc["target"] == target) & (fc["model"] == HEADLINE)]
                 .set_index("horizon")["prob"])
         cols = st.columns(len(FORECAST_HORIZONS))

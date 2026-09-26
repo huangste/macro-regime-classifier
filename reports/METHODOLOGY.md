@@ -180,10 +180,22 @@ and is the standard robust default.
 
 **Volatility is genuinely forecastable; direction is not.** On targets with no
 window overlap at all, forward realised volatility above its training median
-is predicted with **+25% skill at h=25 (p < 0.0001, AUC 0.86)**, while the
-sign of the forward S&P return shows **no skill at any horizon**. This is the
-cleanest evidence that the feature set carries real information — and that the
-information is about risk, not about returns.
+is predicted with **21–27% skill at every horizon from 5 to 25 days**
+(t-statistics from −6.2 to −12.8, AUC 0.86–0.88), while the sign of the
+forward S&P return shows **no skill at any horizon** (best result +0.7%,
+p = 0.22, and the winner there is the unconditional base rate). This is the
+cleanest evidence in the project that the feature set carries real
+information — and that the information is about risk, not about returns. It
+needs no combination step to be visible.
+
+**Reformulating the regime target continuously did not work.** Regressing the
+forward risk-appetite score with ridge and reading the probability off a
+Gaussian predictive distribution — same features, same horizon, same event,
+only a different loss — was *much worse* than classifying the indicator
+directly, by 24% of log loss at h=25 and by far more at short horizons. A
+constant residual standard deviation is a poor description of a score whose
+dispersion is itself state-dependent, and the classifier that targets the
+probability directly does not have to get the conditional variance right.
 
 **Volatility and credit carry the signal.** Ablations show a forecaster given
 only volatility features, or only credit features, does at least as well as

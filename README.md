@@ -59,9 +59,15 @@ python experiments/03_forecast_benchmark.py
 | `03_forecast_benchmark.py` | does anything beat a persistence forecast out of sample |
 | `04_is_the_skill_real.py` | is the measured skill foresight, or overlapping windows |
 | `05_sensitivity_and_ablation.py` | does the conclusion hold across K, estimator and sample |
+| `06_target_reformulation.py` | is the target, rather than the model, the binding constraint |
+| `07_forecast_combination.py` | does averaging with the benchmark recover the signal |
 
-Each writes a markdown report into `reports/`. Run them in order; 03 must run
-before 04.
+Each writes a markdown report into `reports/`. Run them in order: 04 and 07
+both consume the predictions 03 writes, and the app's diagnostics tab reads
+the tables produced by 03, 06 and 07.
+
+`reports/METHODOLOGY.md` is the summary of what all of this concluded, and is
+also what the app's **Method** tab displays.
 
 ## Tests
 

@@ -98,27 +98,29 @@ Base rate 37.3%, 6,804 daily observations (~272 non-overlapping).
 
 ## M3. Does the skill survive on days when the regime changes?
 
-|   h | subset         | model             |   share_of_days |   log_loss |   skill_vs_base |    auc |
-|----:|:---------------|:------------------|----------------:|-----------:|----------------:|-------:|
-|   5 | state persists | persist_markov    |          0.9536 |     0.0286 |          0      | 1      |
-|   5 | state changes  | persist_markov    |          0.0464 |     3.3321 |          0      | 0      |
-|   5 | state persists | hmm_analytic      |          0.9536 |     0.0311 |         -0.0888 | 1      |
-|   5 | state changes  | hmm_analytic      |          0.0464 |     2.8143 |          0.1554 | 0      |
-|   5 | state persists | compact|logit_reg |          0.9536 |     0.0632 |         -1.2126 | 0.9999 |
-|   5 | state changes  | compact|logit_reg |          0.0464 |     2.1262 |          0.3619 | 0.0035 |
-|   5 | state persists | full|hgb          |          0.9536 |     0.0483 |         -0.6916 | 0.9987 |
-|   5 | state changes  | full|hgb          |          0.0464 |     1.8594 |          0.442  | 0.2274 |
-|   5 | state persists | full|rf           |          0.9536 |     0.1899 |         -5.6499 | 0.9981 |
-|   5 | state changes  | full|rf           |          0.0464 |     1.0343 |          0.6896 | 0.2009 |
-|  25 | state persists | persist_markov    |          0.8643 |     0.1431 |          0      | 1      |
-|  25 | state changes  | persist_markov    |          0.1357 |     2.1155 |          0      | 0      |
-|  25 | state persists | hmm_analytic      |          0.8643 |     0.1263 |          0.1176 | 1      |
-|  25 | state changes  | hmm_analytic      |          0.1357 |     1.9951 |          0.0569 | 0      |
-|  25 | state persists | compact|logit_reg |          0.8643 |     0.2037 |         -0.4233 | 0.9844 |
-|  25 | state changes  | compact|logit_reg |          0.1357 |     1.5211 |          0.2809 | 0.0916 |
-|  25 | state persists | full|hgb          |          0.8643 |     0.2765 |         -0.9319 | 0.9592 |
-|  25 | state changes  | full|hgb          |          0.1357 |     1.5763 |          0.2549 | 0.3018 |
-|  25 | state persists | full|rf           |          0.8643 |     0.255  |         -0.7821 | 0.99   |
-|  25 | state changes  | full|rf           |          0.1357 |     1.0547 |          0.5014 | 0.2496 |
+|   h | subset         | model             |   share_of_days |   log_loss |   skill_vs_base |
+|----:|:---------------|:------------------|----------------:|-----------:|----------------:|
+|   5 | state persists | persist_markov    |          0.9536 |     0.0286 |          0      |
+|   5 | state changes  | persist_markov    |          0.0464 |     3.3321 |          0      |
+|   5 | state persists | hmm_analytic      |          0.9536 |     0.0311 |         -0.0888 |
+|   5 | state changes  | hmm_analytic      |          0.0464 |     2.8143 |          0.1554 |
+|   5 | state persists | compact|logit_reg |          0.9536 |     0.0632 |         -1.2126 |
+|   5 | state changes  | compact|logit_reg |          0.0464 |     2.1262 |          0.3619 |
+|   5 | state persists | full|hgb          |          0.9536 |     0.0483 |         -0.6916 |
+|   5 | state changes  | full|hgb          |          0.0464 |     1.8594 |          0.442  |
+|   5 | state persists | full|rf           |          0.9536 |     0.1899 |         -5.6499 |
+|   5 | state changes  | full|rf           |          0.0464 |     1.0343 |          0.6896 |
+|  25 | state persists | persist_markov    |          0.8643 |     0.1431 |          0      |
+|  25 | state changes  | persist_markov    |          0.1357 |     2.1155 |          0      |
+|  25 | state persists | hmm_analytic      |          0.8643 |     0.1263 |          0.1176 |
+|  25 | state changes  | hmm_analytic      |          0.1357 |     1.9951 |          0.0569 |
+|  25 | state persists | compact|logit_reg |          0.8643 |     0.2037 |         -0.4233 |
+|  25 | state changes  | compact|logit_reg |          0.1357 |     1.5211 |          0.2809 |
+|  25 | state persists | full|hgb          |          0.8643 |     0.2765 |         -0.9319 |
+|  25 | state changes  | full|hgb          |          0.1357 |     1.5763 |          0.2549 |
+|  25 | state persists | full|rf           |          0.8643 |     0.255  |         -0.7821 |
+|  25 | state changes  | full|rf           |          0.1357 |     1.0547 |          0.5014 |
 
-The 'state changes' rows are the ones that matter: they are the days on which a forecast could have been useful. A model that is only good at saying 'the same as today' scores well overall and badly here.
+AUC is deliberately omitted: conditioning on whether the state changed makes the outcome an almost deterministic function of today's state within each subset, so any ranking metric computed there is an artefact rather than a measurement.
+
+The 'state changes' rows are the ones that matter: they are the days on which a forecast could have been useful. On the ~86-95% of days when the state persists the benchmark is close to unbeatable and every learned model is worse than it; on the days it turns, the benchmark's loss exceeds 2 and the learned models cut it by a quarter to a half. The models carry information about turns and noise about continuation, which is why experiment 7 combines them rather than choosing between them.
