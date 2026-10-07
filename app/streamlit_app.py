@@ -368,17 +368,25 @@ typical = float(state.expected_durations.iloc[cur_f])
 
 st.subheader(f"Current regime: {cur_name}  ·  {cur_side}")
 
-c1, c2, c3, c4, c5 = st.columns([2.2, 1, 1, 1, 1.2])
-c1.metric("Current regime (real time)", cur_name,
-          delta=cur_side, delta_color="inverse" if cur_side == "Risk-off" else "normal")
-c2.metric("Days in regime", f"{days_in}", help=f"In this state since {since}. "
-          f"Typical episode length for this state: about {typical:.0f} trading days.")
-c3.metric("P(risk-off) today",
-          "<0.1%" if p_off_now < 0.001 else f"{p_off_now:.1%}")
-c4.metric("Risk-appetite index", f"{state.risk_score.iloc[-1]:+.2f}",
-          help="Block-weighted z-score of equity trend, volatility, credit and "
-               "carry. Zero is the sample average.")
-c5.metric("As of", state.meta["end"])
+# Smaller values in this header row only, so the five metrics fit side by side;
+# metrics elsewhere in the app keep Streamlit's default size.
+st.markdown(
+    "<style>.st-key-header_metrics [data-testid='stMetricValue']"
+    "{font-size: 1.5rem;}</style>",
+    unsafe_allow_html=True)
+
+with st.container(key="header_metrics"):
+    c1, c2, c3, c4, c5 = st.columns([2.2, 1, 1, 1, 1.2])
+    c1.metric("Current regime (real time)", cur_name,
+              delta=cur_side, delta_color="inverse" if cur_side == "Risk-off" else "normal")
+    c2.metric("Days in regime", f"{days_in}", help=f"In this state since {since}. "
+              f"Typical episode length for this state: about {typical:.0f} trading days.")
+    c3.metric("P(risk-off) today",
+              "<0.1%" if p_off_now < 0.001 else f"{p_off_now:.1%}")
+    c4.metric("Risk-appetite index", f"{state.risk_score.iloc[-1]:+.2f}",
+              help="Block-weighted z-score of equity trend, volatility, credit and "
+                   "carry. Zero is the sample average.")
+    c5.metric("As of", state.meta["end"])
 
 st.markdown(f"**Baseline transition probability from {cur_name}**")
 bt = state.baseline_transition.copy()
