@@ -120,15 +120,19 @@ and every experiment run offline and reproducibly from a fresh clone.
 
 Updates are incremental: only the days after the last stored date are
 downloaded (plus a two-week overlap to pick up revisions) and merged in. The
-app does this automatically at most every six hours, and **Update market
-data now** in the sidebar does it on demand. If a source is unreachable the
-stored history is kept and the sidebar says which series are stale. Yahoo
-bars are stored only once the New York session has closed, so a pre-open or
-intraday price never stands in for a close. From Python:
+app does this automatically every six hours, and immediately if the stored
+files have been reset underneath it, as happens on every redeploy; **Update
+market data now** in the sidebar does it on demand. If a source is
+unreachable the stored history is kept and the sidebar says which series are
+stale. Yahoo bars are stored only once the New York session has closed, so a
+pre-open or intraday price never stands in for a close.
 
-```python
-from regimelab.data import update_cache
-update_cache()
+Before pushing a change, refresh the stored history so the deployed app
+starts from recent data:
+
+```bash
+python -m regimelab.data update
+git add data/cache
 ```
 
 Data sources remain subject to their providers' terms of use.

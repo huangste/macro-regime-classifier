@@ -197,6 +197,31 @@ def update_cache() -> dict[str, dict]:
     return report
 
 
+UPDATE_INTERVAL = pd.Timedelta(hours=6)
+
+
+def update_due(
+    last_checked: pd.Timestamp | None,
+    signature_at_check: str | None,
+    current_signature: str,
+    now: pd.Timestamp,
+    interval: pd.Timedelta = UPDATE_INTERVAL,
+) -> bool:
+    """Whether a long-running app should look for new data.
+
+    Due when it has never checked, when ``interval`` has passed since the last
+    check, or when the data on disk is no longer what the last check left
+    behind.  The last case is a redeploy: the host resets the stored files to
+    the committed copy while the process -- and any timer it keeps -- carries
+    on, so time alone would leave the app on old data for up to ``interval``.
+    """
+    if last_checked is None or signature_at_check is None:
+        return True
+    if current_signature != signature_at_check:
+        return True
+    return now - last_checked >= interval
+
+
 def _last_cached_date(path) -> str | None:
     """Date on the final line of a cache file, without parsing the whole file."""
     if not path.exists():
@@ -292,6 +317,16 @@ def coverage_report(series: dict[str, pd.Series]) -> pd.DataFrame:
 
 
 if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    if sys.argv[1:] == ["update"]:
+        # Bring the stored history up to date before committing it.
+        report = update_cache()
+        for name, r in report.items():
+            status = f"+{r['new_rows']} rows" if r["ok"] else f"FAILED ({r['error']})"
+            print(f"  {name:14s} {r['before']} -> {r['after']}  {status}")
+        sys.exit(0 if all(r["ok"] for r in report.values()) else 1)
+
     s = download_all()
     print(coverage_report(s).to_string(index=False))
     for key in SAMPLES:

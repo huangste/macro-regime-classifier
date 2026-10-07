@@ -91,6 +91,30 @@ def test_plain_read_never_touches_the_network(tmp_cache):
     assert len(out) == 50
 
 
+NOW = pd.Timestamp("2026-10-07 14:00", tz="UTC")
+
+
+def test_update_is_due_on_first_check():
+    assert data.update_due(None, None, "sig", NOW)
+
+
+def test_update_is_not_due_again_within_the_interval():
+    assert not data.update_due(NOW - pd.Timedelta(hours=1), "sig", "sig", NOW)
+
+
+def test_update_is_due_once_the_interval_has_passed():
+    assert data.update_due(NOW - pd.Timedelta(hours=7), "sig", "sig", NOW)
+
+
+def test_update_is_due_immediately_when_a_redeploy_resets_the_files():
+    """The failure seen in production: the host restored the committed data
+    while the process's timer said it had checked an hour ago."""
+    after_last_update = "SPX:2026-10-06"
+    after_redeploy = "SPX:2026-09-25"
+    assert data.update_due(NOW - pd.Timedelta(hours=1), after_last_update,
+                           after_redeploy, NOW)
+
+
 def test_cache_signature_moves_only_when_the_last_date_moves(tmp_cache, monkeypatch):
     monkeypatch.setattr(data, "FRED_SERIES", {"A": "A"})
     monkeypatch.setattr(data, "YAHOO_SERIES", {})

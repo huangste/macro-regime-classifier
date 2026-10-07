@@ -14,6 +14,7 @@ them is what made the original model hard to trust:
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +30,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from regimelab.config import ARTIFACT_DIR, FORECAST_HORIZONS
-from regimelab.data import cache_signature, update_cache
+from regimelab.data import cache_signature, update_cache, update_due
 from regimelab.evaluation import reliability_table, summarise_predictions
 from regimelab.pipeline import build_state
 
@@ -50,15 +51,31 @@ def regime_palette(k: int) -> list[str]:
 # --------------------------------------------------------------------------
 # Model state
 # --------------------------------------------------------------------------
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def auto_update() -> dict:
-    """Fetch only data newer than the cache, at most once every six hours.
+@st.cache_resource(show_spinner=False)
+def update_log() -> dict:
+    """Process-wide record of the last data check, shared by all sessions."""
+    return {"lock": threading.Lock(), "checked_at": None,
+            "signature": None, "report": {}}
 
-    The cache committed with the app holds the full history, so this is a few
-    days of rows per series, and a failed download simply leaves the cached
-    history in place.
+
+def refresh_data_if_due(force: bool = False) -> dict:
+    """Fetch only data newer than the stored history, when it is due.
+
+    Due every six hours, and immediately if the stored files no longer match
+    what the last check left behind, as happens when a redeploy resets them to
+    the committed copy.  The stored history covers everything else, so this is
+    a few days of rows per series, and a failed download leaves it in place.
+    The lock stops two sessions writing the same files at once.
     """
-    return update_cache()
+    log = update_log()
+    with log["lock"]:
+        now = pd.Timestamp.now(tz="UTC")
+        if force or update_due(log["checked_at"], log["signature"],
+                               cache_signature(), now):
+            log["report"] = update_cache()
+            log["checked_at"] = now
+            log["signature"] = cache_signature()
+    return log["report"]
 
 
 @st.cache_resource(show_spinner=False)
@@ -324,13 +341,13 @@ method = st.sidebar.selectbox(
          "original notebook's estimator; score is a transparent quantile "
          "baseline on the risk-appetite index.")
 with st.spinner("Checking for new market data..."):
-    update_report = auto_update()
+    update_report = refresh_data_if_due()
 if st.sidebar.button("Update market data now",
                      help="Downloads only the days after the last stored date. "
-                          "The app also does this automatically every six hours."):
+                          "The app also does this automatically every six "
+                          "hours, and straight away after a redeploy."):
     with st.spinner("Downloading new market data..."):
-        st.session_state["update_report"] = update_cache()
-update_report = st.session_state.get("update_report", update_report)
+        update_report = refresh_data_if_due(force=True)
 
 with st.spinner("Fitting regime model..."):
     state = get_state(sample, k, method, cache_signature())
