@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -124,3 +125,50 @@ def test_cache_signature_moves_only_when_the_last_date_moves(tmp_cache, monkeypa
     assert data.cache_signature() == sig1
     data._write_cache(data._cache_file("fred", "A"), _series("2020-01-01", 11).rename("A"))
     assert data.cache_signature() != sig1
+
+
+# --------------------------------------------------------------------------
+# Estimating the latest days of weekly-published series
+# --------------------------------------------------------------------------
+def test_estimates_follow_the_proxy_moves_from_the_last_published_value():
+    cal = pd.bdate_range("2026-10-01", periods=10)
+    base = pd.Series([80.0, 81.0, 82.0], index=cal[:3])
+    proxy = pd.Series(np.linspace(90.0, 99.0, 10), index=cal)    # $8+ level gap
+    out, info = data.extend_with_proxy(base, proxy, cal)
+    assert out.index[-1] == cal[-1]
+    expected = 82.0 * proxy.iloc[3:] / proxy.iloc[2]             # level gap cancels
+    np.testing.assert_allclose(out.iloc[3:].values, expected.values)
+    assert info["last_published"] == cal[2].date() and info["sessions"] == 7
+
+
+def test_nothing_is_estimated_without_a_usable_proxy():
+    cal = pd.bdate_range("2026-10-01", periods=10)
+    base = pd.Series([1.0, 2.0], index=cal[:2])
+    assert data.extend_with_proxy(base, None, cal)[1] is None
+    stale_anchor = pd.Series([5.0, 6.0], index=[pd.Timestamp("2026-09-01"), cal[5]])
+    assert data.extend_with_proxy(base, stale_anchor, cal)[1] is None
+
+
+def test_estimates_stop_after_the_session_cap():
+    cal = pd.bdate_range("2026-10-01", periods=40)
+    base = pd.Series([50.0], index=cal[:1])
+    proxy = pd.Series(50.0, index=cal)
+    out, info = data.extend_with_proxy(base, proxy, cal, max_sessions=15)
+    assert info["sessions"] == 15 and out.index[-1] == cal[15]
+
+
+def test_a_lagging_weekly_series_no_longer_holds_back_the_panel():
+    """The 15 October 2026 case: S&P to the 14th, oil published only to the
+    6th.  Without the proxy the five-session fill runs out and the newest
+    session is dropped from the whole panel."""
+    cal = pd.bdate_range("2026-09-01", "2026-10-14")
+    spx = pd.Series(np.linspace(100, 110, len(cal)), index=cal)
+    oil = spx.loc[:"2026-10-06"] * 0.8
+    fut = spx * 0.85
+    without = data.build_panel({"SPX": spx, "Oil": oil}, sample="core_1990")
+    with_proxy = data.build_panel({"SPX": spx, "Oil": oil, "Oil__proxy": fut},
+                                  sample="core_1990")
+    assert without.index[-1] < cal[-1]
+    assert with_proxy.index[-1] == cal[-1]
+    assert with_proxy.attrs["estimated"]["Oil"]["last_published"] == pd.Timestamp("2026-10-06").date()
+    assert "Oil__proxy" not in with_proxy.columns

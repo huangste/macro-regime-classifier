@@ -283,7 +283,9 @@ def build_state(
         labeler=labeler,
         meta={"n_days": len(features),
               "start": str(features.index[0].date()),
-              "end": str(features.index[-1].date())},
+              "end": str(features.index[-1].date()),
+              "last_published": panel.attrs.get("last_published", {}),
+              "estimated": panel.attrs.get("estimated", {})},
     )
 
 
@@ -292,7 +294,7 @@ def save_state(state: RegimeModelState) -> None:
 
     joblib.dump(state, STATE_FILE, compress=3)
     (ARTIFACT_DIR / "state_meta.json").write_text(
-        json.dumps({"built_at": state.built_at, **state.meta}, indent=2),
+        json.dumps({"built_at": state.built_at, **state.meta}, indent=2, default=str),
         encoding="utf-8")
 
 

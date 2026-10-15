@@ -40,6 +40,24 @@ The original also downloaded HYG and then never put it in the panel, so the
 model had no credit variable at all. Moody's Baa spread is used instead
 because it is daily from 1986 rather than 2007.
 
+**The latest days of weekly-published series.** FRED publishes WTI crude and
+USD/JPY weekly, so at any moment their latest value can be a week or more
+behind the S&P. Left alone, the five-session fill limit runs out and the
+newest sessions are dropped from the whole model; on 15 October 2026 the
+model was stuck at 13 October for this reason alone. Instead, the days after
+each series' last release are estimated from a same-day Yahoo quote for the
+same price (the front-month WTI future; Yahoo's USD/JPY rate), scaled to
+start from the last published value, so only the quote's daily moves are
+borrowed. Over 2001–2026 this estimate was far closer to the value later
+published than repeating the last one: for oil, a median error of 0.1–0.2%
+against 1.3–3.9% over gaps of one to eight days; for USD/JPY, 0.3% against
+up to 1.0%. Estimates are never stored — the next release replaces them —
+and are capped at fifteen sessions. Oil is not a regime input, and on the
+day this was introduced, estimating instead of repeating the last value
+changed neither the regime probabilities nor the headline forecast; USD/JPY
+moved the regime probabilities by about 0.0001. The sidebar lists which
+inputs are estimated or carried forward for the as-of date.
+
 **Known gap, April–July 2020.** WTI crude settled at −$37.63 on 20 April
 2020. Oil features are built from log prices, so that single print makes them
 undefined; the missing value then propagates through every 63-day window, and

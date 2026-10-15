@@ -135,4 +135,10 @@ python -m regimelab.data update
 git add data/cache
 ```
 
+FRED publishes WTI oil and USD/JPY weekly. For the days after their latest
+release the model uses estimates built from same-day Yahoo quotes for the
+same prices, so a release schedule never holds back the as-of date; the
+estimates are not stored and are replaced by the real values when FRED
+publishes them. The sidebar lists which inputs are estimated.
+
 Data sources remain subject to their providers' terms of use.

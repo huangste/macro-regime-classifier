@@ -46,6 +46,23 @@ FRED_SERIES: dict[str, str] = {
     "DAAA": "AaaYield",
 }
 
+# Weekly-published FRED series and a same-day Yahoo quote for the same price.
+# The FRED series keeps its long history; the Yahoo quote is used only to
+# estimate the days after FRED's latest release (see data.extend_with_proxy),
+# so that a release schedule cannot hold back the date of the whole model.
+# Historically the proxy estimate is far closer to the later-published value
+# than repeating the last one (oil: 0.1% vs 3% median error over 5 days).
+EDGE_PROXIES: dict[str, str] = {
+    "Oil": "CL=F",        # front-month WTI future vs WTI spot
+    "USDJPY": "JPY=X",    # Yahoo spot vs Fed H.10 noon rate
+}
+PROXY_SUFFIX = "__proxy"
+
+# An estimate is used for at most this many sessions after the last real
+# value; beyond that the source has probably stopped and the date is allowed
+# to stall, which is visible, rather than run on estimates indefinitely.
+MAX_EDGE_SESSIONS = 15
+
 # Series carried as *levels in percent* -> differenced rather than pct-changed.
 RATE_LIKE: tuple[str, ...] = (
     "DGS10", "DGS2", "DGS3MO", "BaaSpread", "BaaYield", "AaaYield",

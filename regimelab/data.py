@@ -25,7 +25,15 @@ import warnings
 
 import pandas as pd
 
-from .config import CACHE_DIR, FRED_SERIES, SAMPLES, YAHOO_SERIES
+from .config import (
+    CACHE_DIR,
+    EDGE_PROXIES,
+    FRED_SERIES,
+    MAX_EDGE_SESSIONS,
+    PROXY_SUFFIX,
+    SAMPLES,
+    YAHOO_SERIES,
+)
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -177,7 +185,8 @@ def update_cache() -> dict[str, dict]:
     """
     report: dict[str, dict] = {}
     jobs = [("fred", sid, name) for sid, name in FRED_SERIES.items()] + \
-           [("yahoo", tkr, name) for tkr, name in YAHOO_SERIES.items()]
+           [("yahoo", tkr, name) for tkr, name in YAHOO_SERIES.items()] + \
+           [("yahoo", tkr, f"{name} proxy") for name, tkr in EDGE_PROXIES.items()]
     for kind, key, name in jobs:
         before = _read_cache(_cache_file(kind, key))
         last_before = before.index[-1].date() if before is not None else None
@@ -238,7 +247,7 @@ def cache_signature() -> str:
     parts = []
     for sid in FRED_SERIES:
         parts.append(f"{sid}:{_last_cached_date(_cache_file('fred', sid))}")
-    for tkr in YAHOO_SERIES:
+    for tkr in list(YAHOO_SERIES) + list(EDGE_PROXIES.values()):
         parts.append(f"{tkr}:{_last_cached_date(_cache_file('yahoo', tkr))}")
     return "|".join(parts)
 
@@ -256,7 +265,48 @@ def download_all(refresh: bool = False) -> dict[str, pd.Series]:
             out[name] = fetch_yahoo(tkr, refresh=refresh).rename(name)
         except Exception as exc:  # pragma: no cover - network dependent
             print(f"  [warn] Yahoo {tkr} failed: {type(exc).__name__}: {exc}")
+    for name, tkr in EDGE_PROXIES.items():
+        key = f"{name}{PROXY_SUFFIX}"
+        try:
+            out[key] = fetch_yahoo(tkr, refresh=refresh).rename(key)
+        except Exception as exc:  # pragma: no cover - network dependent
+            print(f"  [warn] Yahoo proxy {tkr} failed: {type(exc).__name__}: {exc}")
     return out
+
+
+def extend_with_proxy(
+    base: pd.Series,
+    proxy: pd.Series | None,
+    calendar: pd.DatetimeIndex,
+    max_sessions: int = MAX_EDGE_SESSIONS,
+) -> tuple[pd.Series, dict | None]:
+    """Estimate ``base`` on calendar dates after its last published value.
+
+    Each estimate is the last published value scaled by the proxy's move since
+    that date.  Any constant gap between the two sources -- futures basis, a
+    different quote time -- cancels, so only the proxy's day-to-day moves are
+    borrowed.  Estimates are returned, never written to the cache, so the next
+    real release replaces them.  Returns the series and a description of what
+    was estimated, or ``None`` if nothing was.
+    """
+    last = base.index[-1]
+    pending = calendar[calendar > last][:max_sessions]
+    if len(pending) == 0 or proxy is None or proxy.empty:
+        return base, None
+
+    anchor = proxy[proxy.index <= last]
+    if anchor.empty or anchor.iloc[-1] <= 0 or (last - anchor.index[-1]).days > 5:
+        return base, None
+
+    moves = proxy[(proxy.index > last) & (proxy.index <= pending[-1])]
+    moves = moves[moves > 0]
+    if moves.empty:
+        return base, None
+
+    estimate = float(base.iloc[-1]) * moves / float(anchor.iloc[-1])
+    info = {"last_published": last.date(), "estimated_to": estimate.index[-1].date(),
+            "sessions": int(calendar[(calendar > last) & (calendar <= estimate.index[-1])].size)}
+    return pd.concat([base, estimate.rename(base.name)]), info
 
 
 def build_panel(
@@ -269,16 +319,33 @@ def build_panel(
 
     Non-US series are forward-filled across their own holidays with a short
     limit; a gap longer than ``ffill_limit`` sessions is left missing so that
-    genuinely absent data is not fabricated.
+    genuinely absent data is not fabricated.  The exception is the latest
+    edge of weekly-published series in ``EDGE_PROXIES``, which is estimated
+    from a same-day quote rather than allowed to drop the newest sessions.
+
+    ``panel.attrs`` records each series' last published date and what, if
+    anything, was estimated, so the app can say so.
     """
     spec = SAMPLES[sample]
     if series is None:
         series = download_all(refresh=refresh)
+    series = dict(series)
+    proxies = {k[: -len(PROXY_SUFFIX)]: series.pop(k)
+               for k in list(series) if k.endswith(PROXY_SUFFIX)}
 
     if "SPX" not in series:
         raise RuntimeError("SPX is required as the master trading calendar")
 
     calendar = series["SPX"].loc[spec.start:].index
+
+    last_published = {name: s.index[-1].date() for name, s in series.items()
+                      if name not in spec.drop and len(s)}
+    estimated: dict[str, dict] = {}
+    for name in EDGE_PROXIES:
+        if name in series and name not in spec.drop:
+            series[name], info = extend_with_proxy(series[name], proxies.get(name), calendar)
+            if info is not None:
+                estimated[name] = info
 
     cols: dict[str, pd.Series] = {}
     for name, s in series.items():
@@ -299,6 +366,10 @@ def build_panel(
 
     panel = panel.dropna()
     panel.index.name = "Date"
+    panel.attrs["last_published"] = last_published
+    # Report an estimate only if it covers dates the panel actually uses.
+    panel.attrs["estimated"] = {k: v for k, v in estimated.items()
+                                if pd.Timestamp(v["last_published"]) < panel.index[-1]}
     return panel
 
 

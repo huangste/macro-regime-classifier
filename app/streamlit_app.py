@@ -401,6 +401,33 @@ st.sidebar.caption(
     f"**{state.meta['n_days']:,}** trading days  \n"
     f"{state.meta['start']} to {state.meta['end']}  \n"
     f"built {state.built_at.replace('T', ' ')}")
+
+# Inputs whose source has not yet published the as-of date: say how each is
+# filled, so a lagging release is visible rather than silent.
+SERIES_LABELS = {"Oil": "WTI oil", "USDJPY": "USD/JPY", "VIX": "VIX",
+                 "DGS10": "10y Treasury", "DGS2": "2y Treasury",
+                 "DGS3MO": "3m T-bill", "BaaSpread": "Baa spread",
+                 "BaaYield": "Baa yield", "AaaYield": "Aaa yield"}
+
+
+def _day(d) -> str:
+    return f"{d.day} {d:%b}"
+
+
+as_of = pd.Timestamp(state.meta["end"]).date()
+estimated = state.meta.get("estimated", {})
+lag_lines = [f"{SERIES_LABELS.get(n, n)}: published to {_day(i['last_published'])}, "
+             f"later days estimated from same-day market quotes"
+             for n, i in estimated.items()]
+carried: dict = {}
+for n, d in state.meta.get("last_published", {}).items():
+    if n not in estimated and d < as_of:
+        carried.setdefault(d, []).append(SERIES_LABELS.get(n, n))
+lag_lines += [f"{', '.join(names)}: published to {_day(d)}, last value carried forward"
+              for d, names in sorted(carried.items())]
+if lag_lines:
+    st.sidebar.caption(f"**Not yet published for {_day(as_of)}**  \n" + "  \n".join(lag_lines))
+
 failed = [name for name, r in update_report.items() if not r["ok"]]
 if failed:
     st.sidebar.warning(
