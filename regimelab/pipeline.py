@@ -23,6 +23,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from threadpoolctl import threadpool_limits
 
 from .config import ARTIFACT_DIR, FORECAST_HORIZONS
 from .data import build_panel, download_all
@@ -253,8 +254,15 @@ def build_state(
     trans = {h: empirical_transition_matrix(labels, horizon=h, n_regimes=n_regimes)
              for h in (1,) + tuple(horizons)}
 
-    fc = live_forecasts(features, panel, labeler, proba_f, risk_off_f.values.astype(float),
-                        hard_f, horizons=horizons, random_state=random_state)
+    # One thread for the forecast fits.  Gradient boosting otherwise spreads
+    # each of its 30 small fits over every visible core, and on data this
+    # size nearly all of that is threads waiting on each other: about 123
+    # CPU-seconds per build against 17, with identical forecasts.  On a shared
+    # host the burst is what gets the app throttled.
+    with threadpool_limits(limits=1):
+        fc = live_forecasts(features, panel, labeler, proba_f,
+                            risk_off_f.values.astype(float), hard_f,
+                            horizons=horizons, random_state=random_state)
 
     return RegimeModelState(
         built_at=datetime.now().isoformat(timespec="seconds"),
