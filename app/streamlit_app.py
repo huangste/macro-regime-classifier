@@ -13,15 +13,15 @@ them is what made the original model hard to trust:
 
 from __future__ import annotations
 
-import importlib
-import os
 import sys
 import threading
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+APP_DIR = Path(__file__).resolve().parent
+ROOT = APP_DIR.parent
+for _p in (ROOT, APP_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import warnings
 
@@ -32,51 +32,19 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from reload_guard import drop_stale_modules, reload_lock, stamp_modules
 
-def _drop_stale_project_modules() -> None:
-    """Make a redeploy pick up changes to ``regimelab``, not just this script.
-
-    Streamlit re-imports changed modules only if they live under the app's own
-    folder; ``regimelab`` sits beside it, so after a redeploy the running
-    process would keep the old library and the new script could fail to import
-    from it.  Any project module whose source changed since it was loaded --
-    or that was loaded before this check existed -- is dropped, along with the
-    caches holding objects built from it, so the imports below load it fresh.
-    """
-    names = [n for n in sys.modules if n == "regimelab" or n.startswith("regimelab.")]
-    stale = False
-    for n in names:
-        mod = sys.modules[n]
-        path = getattr(mod, "__file__", None)
-        if path is None:
-            continue
-        loaded = getattr(mod, "_source_mtime", None)
-        if loaded is None or not os.path.exists(path) or os.path.getmtime(path) != loaded:
-            stale = True
-            break
-    if stale:
-        for n in names:
-            del sys.modules[n]
-        importlib.invalidate_caches()
+# Pick up a redeployed regimelab without a restart; see reload_guard for why
+# this runs under a lock shared by every session.
+with reload_lock():
+    if drop_stale_modules("regimelab"):
         st.cache_resource.clear()
         st.cache_data.clear()
-
-
-def _stamp_project_modules() -> None:
-    for n, mod in list(sys.modules.items()):
-        if (n == "regimelab" or n.startswith("regimelab.")) and getattr(mod, "__file__", None):
-            if getattr(mod, "_source_mtime", None) is None:
-                mod._source_mtime = os.path.getmtime(mod.__file__)
-
-
-_drop_stale_project_modules()
-
-from regimelab.config import ARTIFACT_DIR, FORECAST_HORIZONS
-from regimelab.data import cache_signature, update_cache, update_due
-from regimelab.evaluation import reliability_table, summarise_predictions
-from regimelab.pipeline import build_state
-
-_stamp_project_modules()
+    from regimelab.config import ARTIFACT_DIR, FORECAST_HORIZONS
+    from regimelab.data import cache_signature, update_cache, update_due
+    from regimelab.evaluation import reliability_table, summarise_predictions
+    from regimelab.pipeline import build_state
+    stamp_modules("regimelab")
 
 st.set_page_config(page_title="Market Regime Research",
                    page_icon="chart", layout="wide")
